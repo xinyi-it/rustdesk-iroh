@@ -134,6 +134,12 @@ impl RendezvousMediator {
         tokio::spawn(async move {
             direct_server(server_cloned).await;
         });
+        // Start Iroh P2P accept loop alongside the existing hbbs mechanism.
+        // This allows incoming connections from peers using public key addressing.
+        let server_iroh = server.clone();
+        tokio::spawn(async move {
+            allow_err!(crate::iroh_transport::start_accept_loop(server_iroh).await);
+        });
         #[cfg(target_os = "android")]
         let start_lan_listening = true;
         #[cfg(not(any(target_os = "android", target_os = "ios")))]

@@ -29,6 +29,35 @@ macro_rules! my_println{
 /// If it returns [`Some`], then the process will continue, and flutter gui will be started.
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn core_main() -> Option<Vec<String>> {
+    // Handle Iroh P2P commands before any UI initialization
+    let cli_args: Vec<String> = std::env::args().collect();
+    if cli_args.iter().any(|a| a == "--get-iroh-id") {
+        if !crate::common::global_init() {
+            std::process::exit(1);
+        }
+        match crate::iroh_transport::get_iroh_node_id() {
+            Ok(id) => { println!("{}", id); std::process::exit(0); }
+            Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+        }
+    }
+    if let Some(pos) = cli_args.iter().position(|a| a == "--iroh-connect") {
+        if !crate::common::global_init() {
+            std::process::exit(1);
+        }
+        let peer_id = cli_args.get(pos + 1).cloned().unwrap_or_default();
+        let password = cli_args.iter().position(|a| a == "--password")
+            .and_then(|p| cli_args.get(p + 1)).cloned().unwrap_or_default();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            log::info!("Connecting to {} via Iroh P2P...", peer_id);
+            match crate::iroh_transport::iroh_connect_and_handshake(&peer_id, &password).await {
+                Ok(()) => log::info!("Iroh P2P session ended"),
+                Err(e) => { eprintln!("Connection failed: {}", e); std::process::exit(1); }
+            }
+        });
+        std::process::exit(0);
+    }
+
     if !crate::common::global_init() {
         return None;
     }

@@ -587,6 +587,11 @@ pub async fn start_server(is_server: bool, no_server: bool) {
     });
 
     if is_server {
+        // Print Iroh NodeId for P2P direct connection
+        match crate::iroh_transport::get_iroh_node_id() {
+            Ok(id) => log::info!("Iroh NodeId (P2P public key): {}", id),
+            Err(e) => log::warn!("Failed to get Iroh NodeId: {}", e),
+        }
         crate::common::set_server_running(true);
         std::thread::spawn(move || {
             if let Err(err) = crate::ipc::start("") {

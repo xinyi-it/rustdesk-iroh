@@ -96,6 +96,22 @@ pub fn get_id() -> String {
     return ipc::get_id();
 }
 
+/// Get the Iroh NodeId (public key in hex) for this device.
+///
+/// This is the decentralized connection address — other peers can connect
+/// directly using this ID without going through an hbbs server.
+/// Returns an empty string if the key pair is not available.
+#[inline]
+pub fn get_iroh_id() -> String {
+    match crate::iroh_transport::get_iroh_node_id() {
+        Ok(id) => id,
+        Err(e) => {
+            log::warn!("Failed to get Iroh NodeId: {}", e);
+            String::new()
+        }
+    }
+}
+
 #[inline]
 pub fn goto_install() {
     allow_err!(crate::run_me(vec!["--install"]));

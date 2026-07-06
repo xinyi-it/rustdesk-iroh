@@ -285,6 +285,13 @@ impl Client {
             ));
         }
 
+        // Iroh P2P direct connection: if the peer ID is a hex-encoded
+        // public key (64 chars), bypass hbbs entirely and connect via Iroh.
+        if crate::iroh_transport::is_iroh_node_id(peer) {
+            log::info!("Detected Iroh NodeId, connecting via P2P: {}", peer);
+            return Self::start_iroh(peer, conn_type, interface.clone()).await;
+        }
+
         let other_server = interface.get_lch().read().unwrap().other_server.clone();
         let (peer, other_server, key, token) = if let Some((a, b, c)) = other_server.as_ref() {
             (a.as_ref(), b.as_ref(), c.as_ref(), "")
@@ -366,6 +373,65 @@ impl Client {
             Ok(conn) => Ok((conn.0 .0, conn.0 .1, conn.0 .2)),
             Err(e) => Err(e),
         }
+    }
+
+    /// Connect to a peer via Iroh P2P (public key direct connection).
+    ///
+    /// This bypasses the hbbs rendezvous server entirely. The peer ID is
+    /// a z-base-32 encoded ed25519 public key. Iroh resolves the peer's
+    /// address via DNS/DHT and establishes a QUIC connection.
+    async fn start_iroh(
+        peer: &str,
+        _conn_type: ConnType,
+        interface: impl Interface,
+    ) -> ResultType<(
+        (
+            Stream,
+            bool,
+            Option<Vec<u8>>,
+            Option<KcpStream>,
+            &'static str,
+        ),
+        (i32, String),
+        bool,
+    )> {
+        use crate::iroh_transport;
+
+        interface.update_direct(Some(true));
+        interface.update_received(true);
+
+        // Connect via Iroh — this returns a QUIC connection
+        let conn = iroh_transport::connect(peer).await?;
+
+        // Open a bidirectional QUIC stream for RustDesk protocol messages
+        let (send_stream, recv_stream) = conn
+            .open_bi()
+            .await
+            .map_err(|e| hbb_common::anyhow::anyhow!("failed to open QUIC bi-stream: {}", e))?;
+
+        // Get the remote public key for secure connection verification
+        // In iroh 0.35, Connection::remote_node_id() returns Result<NodeId>
+        let remote_pk = conn
+            .remote_node_id()
+            .ok()
+            .map(|id| id.as_bytes().to_vec());
+
+        // Wrap the QUIC stream as a RustDesk Stream using IrohStream adapter
+        let iroh_stream = iroh_transport::IrohStream::from_bi(
+            send_stream,
+            recv_stream,
+            conn,
+            peer.to_owned(),
+        );
+        let stream = Stream::from_iroh(iroh_stream, peer.to_owned());
+
+        log::info!("Iroh P2P connection established to {}", peer);
+
+        Ok((
+            (stream, true, remote_pk, None, "Iroh"),
+            (0, peer.to_owned()),
+            false,
+        ))
     }
 
     async fn _start_inner(

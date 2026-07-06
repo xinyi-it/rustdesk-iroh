@@ -44,7 +44,10 @@ fn main() {
         "-p, --port-forward=[PORT-FORWARD-OPTIONS] 'Format: remote-id:local-port:remote-port[:remote-host]'
         -c, --connect=[REMOTE_ID] 'test only'
         -k, --key=[KEY] ''
-       -s, --server=[] 'Start server'",
+       -s, --server=[] 'Start server'
+       --get-iroh-id 'Print Iroh NodeId (public key for P2P direct connection)'
+       --iroh-connect=[IROH_NODE_ID] 'Connect to peer via Iroh P2P (no hbbs needed)'
+       --password=[PASSWORD] 'Password for authentication'"
     );
     let matches = App::new("rustdesk")
         .version(crate::VERSION)
@@ -96,6 +99,26 @@ fn main() {
         let key = matches.value_of("key").unwrap_or("").to_owned();
         let token = LocalConfig::get_option("access_token");
         cli::connect_test(p, key, token);
+    } else if let Some(_p) = matches.value_of("get-iroh-id") {
+        // Print Iroh NodeId for P2P direct connection
+        match crate::iroh_transport::get_iroh_node_id() {
+            Ok(id) => println!("{}", id),
+            Err(e) => log::error!("Failed to get Iroh NodeId: {}", e),
+        }
+    } else if let Some(node_id) = matches.value_of("iroh-connect") {
+        // P2P direct connection via Iroh — no hbbs needed
+        let password = matches.value_of("password").unwrap_or("").to_owned();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            match crate::iroh_transport::iroh_connect_and_handshake(node_id, &password).await {
+                Ok(()) => {
+                    log::info!("Iroh P2P session ended");
+                }
+                Err(e) => {
+                    log::error!("Iroh P2P connection failed: {}", e);
+                }
+            }
+        });
     } else if let Some(p) = matches.value_of("server") {
         log::info!("id={}", hbb_common::config::Config::get_id());
         crate::start_server(true, false);
